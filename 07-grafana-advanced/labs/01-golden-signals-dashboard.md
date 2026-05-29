@@ -12,7 +12,10 @@ Build a complete production-grade Golden Signals Grafana dashboard for an HTTP s
 1. Grafana UI → Dashboards → New Folder → name it "Production Services"
 2. Or via API:
 ```bash
-curl -s -X POST http://admin:admin@localhost:3000/api/folders \
+GRAFANA_PASS=$(kubectl get secret grafana-admin-credentials -n monitoring \
+  -o jsonpath='{.data.admin-password}' | base64 --decode)
+
+curl -s -X POST http://admin:${GRAFANA_PASS}@localhost:3000/api/folders \
   -H 'Content-Type: application/json' \
   -d '{"title": "Production Services", "uid": "prod-services"}'
 ```

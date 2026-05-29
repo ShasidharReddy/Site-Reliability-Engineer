@@ -56,7 +56,9 @@ grafana:
 kubectl logs -n monitoring deploy/grafana -c grafana-sc-dashboard | tail -20
 
 # Verify dashboard exists in Grafana
-curl -s http://admin:admin@localhost:3000/api/dashboards/uid/golden-signals | jq .meta.title
+GRAFANA_PASS=$(kubectl get secret grafana-admin-credentials -n monitoring \
+  -o jsonpath='{.data.admin-password}' | base64 --decode)
+curl -s http://admin:${GRAFANA_PASS}@localhost:3000/api/dashboards/uid/golden-signals | jq .meta.title
 ```
 
 ## Step 5: Update via Git

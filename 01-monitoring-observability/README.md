@@ -4,7 +4,7 @@
 | File | Description |
 |------|-------------|
 | [theory.md](theory.md) | Deep dive: Prometheus, PromQL, Grafana, Alertmanager, Loki, Tracing |
-| [labs/01-prometheus-setup.md](labs/01-prometheus-setup.md) | Deploy kube-prometheus-stack on minikube |
+| [labs/01-prometheus-setup.md](labs/01-prometheus-setup.md) | Deploy production-grade kube-prometheus-stack (GKE / kind) |
 | [labs/02-grafana-dashboards.md](labs/02-grafana-dashboards.md) | Build production-grade dashboards |
 | [labs/03-alertmanager-rules.md](labs/03-alertmanager-rules.md) | Write and test alert rules |
 | [labs/04-loki-logging.md](labs/04-loki-logging.md) | Deploy Loki + query logs with LogQL |

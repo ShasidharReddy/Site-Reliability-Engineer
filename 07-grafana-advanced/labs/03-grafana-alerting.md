@@ -49,7 +49,9 @@ Configure production-quality alert rules and routing using Grafana's unified ale
 ## Part 4: Add Silence
 ```bash
 # Silence during maintenance window via API
-curl -X POST http://admin:admin@localhost:3000/api/alertmanager/grafana/api/v2/silences \
+GRAFANA_PASS=$(kubectl get secret grafana-admin-credentials -n monitoring \
+  -o jsonpath='{.data.admin-password}' | base64 --decode)
+curl -X POST http://admin:${GRAFANA_PASS}@localhost:3000/api/alertmanager/grafana/api/v2/silences \
   -H 'Content-Type: application/json' \
   -d '{
     "matchers": [{"name": "job", "value": "my-service", "isRegex": false}],

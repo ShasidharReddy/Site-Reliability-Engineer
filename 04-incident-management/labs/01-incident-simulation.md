@@ -1,7 +1,7 @@
 # Lab 01 — Incident Simulation
 
 ## Overview
-Simulate a production incident on your minikube cluster, practice the incident response process, and write up findings.
+Simulate a production incident on a real Kubernetes cluster (GKE, on-prem, or a multi-node kind lab cluster), practice the incident response process end-to-end, and produce a postmortem write-up.
 
 ## Setup: Deploy Sample App
 ```bash

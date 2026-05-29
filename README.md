@@ -35,30 +35,42 @@ Install these tools before starting labs:
 
 ```bash
 # macOS
-brew install kubectl helm minikube kind terraform python3
+brew install kubectl helm kind terraform python3
 brew install --cask google-cloud-sdk
 
 # Verify
 kubectl version --client
-helm version
-minikube version
+helm version --short
+kind version
 gcloud version
 ```
 
+> **Cluster Options:**
+> - **Production/Primary:** GKE Standard (used throughout production labs) — `gcloud container clusters create`
+> - **Local lab parity:** `kind` (Kubernetes-in-Docker) — mirrors production API server, supports multi-node, runs on your laptop
+> - **On-prem:** Any CNCF-conformant cluster (RKE2, K3s with HA etcd, Tanzu, OpenShift)
+>
+> ⚠️ minikube is intentionally excluded — it uses a non-standard single-node setup with incomplete CNI/CSI support that does not reflect real production environments.
+
 ---
 
-## 🚀 Quick Start (Get a Lab Running in 5 Minutes)
+## 🚀 Quick Start
 
 ```bash
-# 1. Bootstrap your lab environment
+# 1. Check prerequisites and cluster connectivity
 bash scripts/bootstrap-lab.sh
 
-# 2. Deploy the full monitoring stack (Prometheus + Grafana + Loki)
+# 2. Deploy the full monitoring stack (Prometheus + Grafana + Loki + Tempo)
+#    Targets the current kubectl context (GKE, kind, or on-prem)
 bash scripts/deploy-monitoring-stack.sh
 
-# 3. Open Grafana
-kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80 &
-open http://localhost:3000  # admin / prom-operator
+# 3. Access Grafana
+#    Production: via Ingress (configured in deploy script)
+#    Local lab (kind): port-forward for temporary access only
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+# Retrieve auto-generated admin password:
+kubectl get secret -n monitoring kube-prometheus-stack-grafana \
+  -o jsonpath="{.data.admin-password}" | base64 --decode; echo
 ```
 
 ---
