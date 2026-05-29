@@ -1,0 +1,31 @@
+# Pod Disruption Budget — Ensures minimum availability during voluntary disruptions
+# Apply with: kubectl apply -f pdb-example.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-pdb
+  namespace: production
+  labels:
+    app: web
+    tier: frontend
+spec:
+  # Keep at least 2 pods available at all times during voluntary disruptions
+  # (node drain, cluster upgrade, scale-down)
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: web
+
+---
+# Alternative: percentage-based (better for variable replica counts)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-pdb
+  namespace: production
+spec:
+  # At most 25% of pods can be unavailable at once
+  maxUnavailable: "25%"
+  selector:
+    matchLabels:
+      app: api

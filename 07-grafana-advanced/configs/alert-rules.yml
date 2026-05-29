@@ -1,0 +1,92 @@
+# Grafana Alert Rules — Provisioning Config
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: SRE-Critical
+    folder: SRE
+    interval: 1m
+    rules:
+      - uid: high-error-rate
+        title: High Error Rate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus-uid
+            model:
+              expr: |
+                sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (job)
+                / sum(rate(http_requests_total[5m])) by (job) * 100
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              conditions:
+                - evaluator: {params: [5], type: gt}
+                  reducer: {type: last}
+                  query: {params: [A]}
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "High error rate {{ $labels.job }}: {{ $values.A | printf "%.1f" }}%"
+          runbook_url: "https://wiki.company.com/runbooks/high-error-rate"
+        labels:
+          severity: critical
+          team: sre
+
+      - uid: high-latency-p99
+        title: High P99 Latency
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus-uid
+            model:
+              expr: |
+                histogram_quantile(0.99,
+                  sum(rate(http_request_duration_seconds_bucket[5m])) by (job, le)
+                )
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              conditions:
+                - evaluator: {params: [2], type: gt}
+                  reducer: {type: last}
+                  query: {params: [A]}
+        for: 5m
+        annotations:
+          summary: "P99 latency above 2s for {{ $labels.job }}"
+          runbook_url: "https://wiki.company.com/runbooks/high-latency"
+        labels:
+          severity: warning
+          team: sre
+
+      - uid: slo-burn-rate-fast
+        title: SLO Fast Burn Rate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: prometheus-uid
+            model:
+              expr: |
+                (sum(rate(http_requests_total{status_code=~"5.."}[1h])) by (job)
+                / sum(rate(http_requests_total[1h])) by (job)) / 0.001
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              conditions:
+                - evaluator: {params: [14.4], type: gt}
+                  reducer: {type: last}
+                  query: {params: [A]}
+        for: 2m
+        annotations:
+          summary: "Fast SLO burn rate on {{ $labels.job }} — {{ $values.A | printf "%.1f" }}x budget rate"
+          runbook_url: "https://wiki.company.com/runbooks/slo-burn"
+        labels:
+          severity: critical
+          team: sre

@@ -1,0 +1,79 @@
+# SLO Definition Template
+# Fill this out for each service you own
+# Reference: Google SRE Workbook Chapter 2
+
+apiVersion: sre.company.com/v1
+kind: SLODefinition
+metadata:
+  name: api-service-slos
+  team: platform-sre
+  service: api-service
+  tier: 1                          # Tier 1 = customer-facing, highest priority
+
+spec:
+  # Service metadata
+  service_url: https://api.example.com
+  runbook_url: https://wiki.example.com/runbooks/api-service
+  dashboard_url: https://grafana.example.com/d/api-slos
+
+  # SLO 1 — Availability
+  slos:
+    - name: availability
+      description: >
+        The percentage of valid HTTP requests that receive a successful (non-5xx) response.
+        Measured at the load balancer level, excluding health checks.
+      category: availability
+      sli:
+        good_events: "sum(rate(http_requests_total{job='api', status!~'5..', path!='/health'}[{{window}}]))"
+        total_events: "sum(rate(http_requests_total{job='api', path!='/health'}[{{window}}]))"
+      objectives:
+        - target: 0.999           # 99.9%
+          window: 30d             # 30-day rolling window
+          alerting:
+            burn_rates:
+              - window: 1h
+                short_window: 5m
+                burn_rate: 14.4
+                severity: critical
+              - window: 6h
+                short_window: 30m
+                burn_rate: 6
+                severity: warning
+
+    # SLO 2 — Latency
+    - name: latency-p99
+      description: >
+        99th percentile of HTTP request duration must be under 500ms.
+        Measured on successful (2xx) responses only.
+      category: latency
+      sli:
+        good_events: "sum(rate(http_request_duration_seconds_bucket{job='api',status=~'2..',le='0.5'}[{{window}}]))"
+        total_events: "sum(rate(http_request_duration_seconds_count{job='api',status=~'2..'}[{{window}}]))"
+      objectives:
+        - target: 0.995           # 99.5%
+          window: 7d
+
+    # SLO 3 — Error Rate
+    - name: error-rate
+      description: >
+        Less than 0.1% of all requests should return a 5xx error.
+      category: quality
+      sli:
+        good_events: "sum(rate(http_requests_total{job='api',status!~'5..'}[{{window}}]))"
+        total_events: "sum(rate(http_requests_total{job='api'}[{{window}}]))"
+      objectives:
+        - target: 0.999
+          window: 30d
+
+  # Error budget policy
+  error_budget_policy:
+    - budget_remaining: ">= 50%"
+      policy: "Normal operations. Feature development continues."
+    - budget_remaining: "25% - 50%"
+      policy: "Reduce risk. No risky deploys without SRE approval. Add integration tests."
+    - budget_remaining: "10% - 25%"
+      policy: "Feature freeze. All hands on reliability improvements."
+    - budget_remaining: "< 10%"
+      policy: "Emergency. Escalate to engineering leadership. Mandatory postmortem."
+    - budget_remaining: "0% (SLO breached)"
+      policy: "No new features until budget recovers. Mandatory postmortem completed."

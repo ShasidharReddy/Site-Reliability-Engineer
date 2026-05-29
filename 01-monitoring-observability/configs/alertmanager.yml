@@ -1,0 +1,122 @@
+# Alertmanager Configuration — Production Example
+global:
+  resolve_timeout: 5m
+
+  # Default Slack API URL (override per receiver)
+  slack_api_url: 'https://hooks.slack.com/services/T000/B000/xxxx'
+
+  # SMTP for email
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alerts@example.com'
+  smtp_auth_username: 'alerts@example.com'
+  smtp_auth_password: 'secret'
+  smtp_require_tls: true
+
+# Templates for notification formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  # Default receiver if no route matches
+  receiver: 'default-warnings'
+
+  # Group alerts by these labels before sending
+  group_by: ['alertname', 'cluster', 'namespace']
+
+  # Wait 30s before sending first notification (allows grouping)
+  group_wait: 30s
+
+  # Wait 5m before sending updates for same group
+  group_interval: 5m
+
+  # Re-send notification if still firing after 4h
+  repeat_interval: 4h
+
+  routes:
+    # Critical: page immediately
+    - match:
+        severity: critical
+      receiver: pagerduty-critical
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true   # also send to next matching route
+
+    # Critical also goes to Slack #critical channel
+    - match:
+        severity: critical
+      receiver: slack-critical
+      continue: false
+
+    # Warning: Slack only
+    - match:
+        severity: warning
+      receiver: slack-warnings
+
+    # Info/low severity: email digest
+    - match:
+        severity: info
+      receiver: email-digest
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 24h
+
+receivers:
+  - name: 'default-warnings'
+    slack_configs:
+      - channel: '#alerts-general'
+        send_resolved: true
+
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - routing_key: 'your-pagerduty-integration-key'
+        description: '{{ template "pagerduty.default.description" . }}'
+        severity: '{{ if eq .Status "firing" }}critical{{ else }}info{{ end }}'
+        details:
+          cluster: '{{ .GroupLabels.cluster }}'
+          namespace: '{{ .GroupLabels.namespace }}'
+
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#alerts-critical'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        title: '{{ if eq .Status "firing" }}🔴 CRITICAL{{ else }}✅ RESOLVED{{ end }}: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Namespace:* {{ .Labels.namespace }}
+          <{{ .Annotations.runbook_url }}|Runbook>
+          {{ end }}
+
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#alerts-warnings'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+        title: '🟡 WARNING: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  - name: 'email-digest'
+    email_configs:
+      - to: 'sre-team@example.com'
+        send_resolved: true
+        headers:
+          Subject: '[SRE Alert] {{ .Status | toUpper }} — {{ .GroupLabels.alertname }}'
+
+# Inhibition rules — suppress child alerts when parent fires
+inhibit_rules:
+  # If a node is down, suppress pod alerts on that node
+  - source_match:
+      alertname: NodeDown
+    target_match_re:
+      alertname: (PodCrashLooping|PodNotReady|ContainerOOMKilled)
+    equal: ['node']
+
+  # If cluster is critical, suppress namespace-level warnings
+  - source_match:
+      alertname: KubeAPIServerDown
+    target_match:
+      severity: warning
+    equal: ['cluster']

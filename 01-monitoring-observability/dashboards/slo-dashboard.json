@@ -1,0 +1,108 @@
+{
+  "description": "SLO Error Budget Dashboard",
+  "editable": true,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 25
+              },
+              {
+                "color": "green",
+                "value": 50
+              }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "title": "Error Budget Remaining (30d)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "(1 - (sum(increase(http_requests_total{status_code=~'5..', job='$service'}[30d])) / sum(increase(http_requests_total{job='$service'}[30d])))) / 0.001 * 100",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 2,
+      "title": "Burn Rate (1h vs 6h)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~'5..', job='$service'}[1h])) / sum(rate(http_requests_total{job='$service'}[1h]))",
+          "legendFormat": "1h burn rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~'5..', job='$service'}[6h])) / sum(rate(http_requests_total{job='$service'}[6h]))",
+          "legendFormat": "6h burn rate",
+          "refId": "B"
+        }
+      ]
+    }
+  ],
+  "tags": [
+    "slo",
+    "sre"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "query": "prometheus",
+        "type": "datasource"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(up, job)",
+        "name": "service",
+        "query": "label_values(up, job)",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "title": "SLO Error Budget",
+  "uid": "slo-dashboard",
+  "version": 1
+}

@@ -1,0 +1,25 @@
+# Grafana Dashboard Folder Provisioning
+apiVersion: 1
+
+providers:
+  - name: SRE Dashboards
+    orgId: 1
+    folder: SRE
+    folderUid: sre-folder
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/sre
+      foldersFromFilesStructure: true
+
+  - name: Kubernetes Dashboards
+    orgId: 1
+    folder: Kubernetes
+    folderUid: k8s-folder
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards/kubernetes

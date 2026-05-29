@@ -1,0 +1,55 @@
+# ResourceQuota — Prevent any one namespace from consuming all cluster resources
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: production
+spec:
+  hard:
+    # Compute resources
+    requests.cpu: "20"           # Total CPU requests across all pods
+    requests.memory: 40Gi        # Total memory requests
+    limits.cpu: "40"             # Total CPU limits
+    limits.memory: 80Gi          # Total memory limits
+
+    # Object count limits
+    pods: "100"                  # Max pods in namespace
+    services: "20"               # Max services
+    persistentvolumeclaims: "30" # Max PVCs
+    secrets: "50"                # Max secrets
+    configmaps: "50"             # Max ConfigMaps
+
+    # LoadBalancer limit (expensive!)
+    services.loadbalancers: "3"
+
+---
+# LimitRange — Default requests/limits for containers that don't specify them
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-limits
+  namespace: production
+spec:
+  limits:
+  - type: Container
+    default:
+      cpu: 200m
+      memory: 256Mi
+    defaultRequest:
+      cpu: 100m
+      memory: 128Mi
+    max:
+      cpu: "4"
+      memory: 8Gi
+    min:
+      cpu: 50m
+      memory: 64Mi
+  - type: Pod
+    max:
+      cpu: "8"
+      memory: 16Gi
+  - type: PersistentVolumeClaim
+    max:
+      storage: 50Gi
+    min:
+      storage: 1Gi
