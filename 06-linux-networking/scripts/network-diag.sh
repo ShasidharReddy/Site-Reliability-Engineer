@@ -184,13 +184,25 @@ fi
 
 section "Policy overview"
 if have_cmd nft; then
-  nft list ruleset 2>/dev/null | awk 'NR<=80 {print}' || warn "Unable to read nftables ruleset"
+  if nft list ruleset 2>/dev/null | awk 'NR<=80 {print}'; then
+    :
+  else
+    printf '[INFO] Firewall rules not readable without elevated privileges\n'
+  fi
 elif have_cmd iptables; then
-  iptables -L -n -v --line-numbers 2>/dev/null | awk 'NR<=80 {print}' || warn "Unable to read iptables rules"
+  if iptables -L -n -v --line-numbers 2>/dev/null | awk 'NR<=80 {print}'; then
+    :
+  else
+    printf '[INFO] iptables rules not readable without elevated privileges\n'
+  fi
 elif have_cmd pfctl; then
-  pfctl -sr 2>/dev/null | awk 'NR<=80 {print}' || warn "Unable to read pf rules"
+  if pfctl -sr 2>/dev/null | awk 'NR<=80 {print}'; then
+    :
+  else
+    printf '[INFO] pf rules not readable without elevated privileges\n'
+  fi
 else
-  warn "No firewall inspection command available"
+  printf '[INFO] No firewall inspection command available\n'
 fi
 
 printf '\nResult code: %s\n' "$EXIT_CODE"

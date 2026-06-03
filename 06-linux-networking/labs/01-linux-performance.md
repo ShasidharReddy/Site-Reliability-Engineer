@@ -16,8 +16,8 @@ The goal is not to memorize commands but to build a sequence: scope, baseline, c
 | Area | Primary tools | Backup tools |
 | --- | --- | --- |
 | CPU | uptime, vmstat, mpstat, pidstat | top, ps, perf |
-| Memory | free, vmstat, /proc/meminfo, PSI | smaps, sar -B |
-| Disk | iostat, pidstat -d, df, lsof +L1 | lsblk, findmnt |
+| Memory | free, vmstat, /proc/meminfo, PSI, slabtop, smem | smaps, sar -B |
+| Disk | iostat, pidstat -d, df, lsof +L1, fio | lsblk, findmnt |
 | Integrated triage | USE method table | journalctl, dmesg |
 
 ## 1. Baseline capture before touching the host
@@ -160,6 +160,8 @@ cat /proc/meminfo | egrep "MemAvailable|Cached|Dirty|Anon|Swap"
 vmstat 1 10
 cat /proc/pressure/memory
 ps -eo pid,%mem,rss,vsz,comm --sort=-rss | head -20
+smem -r | head -20
+slabtop -o | head -20
 cat /sys/fs/cgroup/memory.current 2>/dev/null
 cat /sys/fs/cgroup/memory.events 2>/dev/null
 grep -E "pgscan|pgsteal|oom" /proc/vmstat | head -30
@@ -176,6 +178,8 @@ grep -E "pgscan|pgsteal|oom" /proc/vmstat | head -30
 
 ### What to look for
 - Focus on MemAvailable, PSI, and swap activity instead of “used memory.”
+- Use smem when you need proportional set size rather than double-counted shared pages.
+- Use slabtop when you suspect kernel slab growth such as dentries, inodes, or networking objects.
 - Look for one or two dominant processes before speculating about kernel leaks.
 - If the page cache is large but PSI is low, the system is probably still healthy.
 - Direct reclaim often shows up as latency before total memory appears exhausted.

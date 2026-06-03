@@ -1,0 +1,142 @@
+# alertmanager-production.yml
+# Production Alertmanager configuration with severity-based routing and
+# maintenance-aware muting for lower-priority alerts.
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: smtp.sendgrid.net:587
+  smtp_from: sre-alerts@example.com
+  smtp_require_tls: true
+  smtp_hello: alertmanager.example.com
+  pagerduty_url: https://events.pagerduty.com/v2/enqueue
+  slack_api_url: ${SLACK_WEBHOOK_URL}
+
+route:
+  # Group by the fields responders use to understand one incident as one page.
+  receiver: slack-warnings
+  group_by: ['alertname', 'cluster', 'namespace', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity="sev1"
+      # Immediate paging for top-priority incidents.
+      receiver: pagerduty-critical
+      group_wait: 10s
+      repeat_interval: 30m
+    - matchers:
+        - severity="sev2"
+      # SEV2 pages the on-call engineer first...
+      receiver: pagerduty-critical
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      continue: true
+    - matchers:
+        - severity="sev2"
+      # ...then also lands in Slack for broader visibility.
+      receiver: slack-warnings
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2h
+    - matchers:
+        - severity="sev3"
+      # SEV3 is Slack-only, but still grouped aggressively enough to avoid floods.
+      receiver: slack-warnings
+      group_wait: 2m
+      group_interval: 10m
+      repeat_interval: 6h
+    - matchers:
+        - severity="sev4"
+      # Low-priority alerts go to email and are muted during planned maintenance.
+      receiver: email-low-priority
+      group_wait: 10m
+      group_interval: 30m
+      repeat_interval: 24h
+      mute_time_intervals:
+        - planned-maintenance
+        - overnight-low-priority
+
+inhibit_rules:
+  # When the same alert is already firing at higher severity, suppress the
+  # lower-severity copy so responders do not get duplicate pages.
+  - source_matchers:
+      - severity="sev1"
+    target_matchers:
+      - severity=~"sev2|sev3|sev4"
+    equal: ['alertname', 'cluster', 'namespace', 'service']
+  - source_matchers:
+      - severity="sev2"
+    target_matchers:
+      - severity=~"sev3|sev4"
+    equal: ['alertname', 'cluster', 'namespace', 'service']
+  - source_matchers:
+      - alertstate="maintenance"
+    target_matchers:
+      - severity=~"sev3|sev4"
+    equal: ['cluster', 'namespace', 'service']
+
+mute_time_intervals:
+  - name: planned-maintenance
+    # Sunday 02:00-04:00 UTC is a common low-traffic maintenance window.
+    time_intervals:
+      - weekdays: ['sunday']
+        times:
+          - start_time: '02:00'
+            end_time: '04:00'
+  - name: overnight-low-priority
+    # Suppress SEV4 chatter outside office hours while keeping SEV1/SEV2 paging intact.
+    time_intervals:
+      - weekdays: ['monday:friday']
+        times:
+          - start_time: '00:00'
+            end_time: '07:00'
+          - start_time: '20:00'
+            end_time: '24:00'
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+receivers:
+  - name: pagerduty-critical
+    pagerduty_configs:
+      - routing_key: ${PAGERDUTY_ROUTING_KEY}
+        send_resolved: true
+        severity: '{{ .CommonLabels.severity }}'
+        class: '{{ .CommonLabels.alertname }}'
+        group: '{{ .CommonLabels.cluster }}'
+        component: '{{ .CommonLabels.service }}'
+        summary: '{{ .CommonAnnotations.summary }}'
+        details:
+          cluster: '{{ .CommonLabels.cluster }}'
+          namespace: '{{ .CommonLabels.namespace }}'
+          runbook: '{{ .CommonAnnotations.runbook_url }}'
+  - name: slack-warnings
+    slack_configs:
+      - send_resolved: true
+        channel: '#sre-alerts'
+        username: alertmanager
+        icon_emoji: ':rotating_light:'
+        title: '{{ .CommonLabels.severity | toUpper }} {{ .CommonLabels.alertname }}'
+        text: >-
+          Cluster: {{ .CommonLabels.cluster }}
+
+          Namespace: {{ .CommonLabels.namespace }}
+
+          Service: {{ .CommonLabels.service }}
+
+          Summary: {{ .CommonAnnotations.summary }}
+
+          Runbook: {{ .CommonAnnotations.runbook_url }}
+  - name: email-low-priority
+    email_configs:
+      - to: sre-low-priority@example.com
+        from: sre-alerts@example.com
+        smarthost: smtp.sendgrid.net:587
+        auth_username: apikey
+        auth_password: ${SMTP_API_KEY}
+        require_tls: true
+        send_resolved: true
+        headers:
+          Subject: '[SEV4] {{ .CommonLabels.alertname }} on {{ .CommonLabels.cluster }}'

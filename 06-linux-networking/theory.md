@@ -622,10 +622,13 @@ The best network debugging workflow escalates from cheap, broad tools to expensi
 
 ### Key points
 - ip and ss are the first stop for addresses, routes, neighbors, listening sockets, and queue depth.
+- netstat is older than ss but still appears in older runbooks and vendor KBs, so SREs should recognize both outputs.
 - mtr and tracepath blend reachability and path loss information better than isolated ping or traceroute runs.
 - tcpdump captures packets at the host, but interface choice, namespace choice, and offloads matter.
+- Wireshark is best when you need protocol decoding, TCP stream reconstruction, or offline packet review with teammates.
 - ethtool surfaces link settings, driver statistics, coalescing, and ring configuration.
 - nstat and sar -n show TCP, IP, and interface counters over time for trend analysis.
+- dig, nslookup, and drill all query DNS, but dig and drill are better for scripting while nslookup remains common on jump hosts.
 - eBPF tools such as tcplife, tcpconnect, and dropsnoop can reveal events without full packet capture volume.
 
 ### Operator map
@@ -633,16 +636,22 @@ The best network debugging workflow escalates from cheap, broad tools to expensi
 | --- | --- | --- |
 | Is the route correct? | ip route get | shows actual next hop decision |
 | Is the port open? | ss or nc | separates listen issue from path issue |
+| Do I need legacy socket output? | netstat -plant | still common in older environments |
 | Are packets dropped on host? | ip -s link or ethtool -S | driver and interface counters |
 | Is TCP retransmitting? | nstat or ss -i | transport-level health |
-| Do I need packets? | tcpdump | last-mile proof of what hit the host |
+| Is DNS behavior resolver-specific? | dig, drill, or nslookup | compare stub and recursive paths |
+| Do I need packets? | tcpdump or Wireshark | capture on-host or decode offline |
 
 ### Command examples
 ```bash
 ip route get 1.1.1.1
 ss -tina
+netstat -plant
+traceroute example.com
 mtr --report --report-cycles 10 example.com
 tcpdump -ni any host 10.0.0.5 and port 443
+wireshark ./captures/app.pcap
+nslookup example.com
 ethtool -k <iface>
 ```
 
@@ -662,9 +671,12 @@ DNS incidents are rarely just “DNS is broken.” You need to distinguish resol
 
 ### Key points
 - Applications may use libc, c-ares, Java, Go, Envoy, or systemd-resolved caches, each with different behaviors.
+- /etc/nsswitch.conf determines whether hosts lookups consult files, DNS, mdns, or other sources first.
+- /etc/resolv.conf defines nameservers, timeout behavior, search domains, and ndots-driven query expansion.
 - A or AAAA response order influences dual-stack connection timing and happy eyeballs behavior.
 - Negative caching means NXDOMAIN or SERVFAIL can persist beyond the exact instant of failure.
 - dig +trace isolates authoritative delegation issues from recursive resolver issues.
+- In Kubernetes, CoreDNS often sits behind the pod stub resolver and amplifies search-domain mistakes when ndots is high.
 - resolv.conf search domains and ndots can cause unexpected query storms and delays.
 - Reverse lookup failures often affect logs, ACLs, or TLS checks even when forward lookup works.
 
@@ -679,10 +691,14 @@ DNS incidents are rarely just “DNS is broken.” You need to distinguish resol
 
 ### Command examples
 ```bash
+cat /etc/nsswitch.conf
 cat /etc/resolv.conf
 getent hosts example.com
 dig example.com A +short
+drill example.com
+nslookup example.com
 dig +trace example.com
+systemd-resolve --status
 resolvectl query example.com
 ```
 
@@ -742,6 +758,7 @@ Host firewalls, cloud security groups, network ACLs, and service mesh policies c
 
 ### Key points
 - iptables and nftables implement filtering, NAT, and state matching at netfilter hooks.
+- The classic iptables chains are INPUT for packets to the local host, OUTPUT for locally generated packets, and FORWARD for transit traffic.
 - Stateful rules rely on conntrack, so dropped state or conntrack exhaustion can look like random packet loss.
 - Default drop policies are safer, but they make observability and counters essential.
 - Cloud firewalls and host firewalls may both permit or deny traffic independently.
@@ -751,7 +768,7 @@ Host firewalls, cloud security groups, network ACLs, and service mesh policies c
 ### Operator map
 | Layer | Example | How to inspect |
 | --- | --- | --- |
-| host firewall | nftables or iptables | nft list ruleset |
+| host firewall | nftables or iptables INPUT / OUTPUT / FORWARD | nft list ruleset or iptables -L -n -v |
 | cloud perimeter | security group or ACL | provider console or CLI |
 | container policy | Kubernetes NetworkPolicy | kubectl describe networkpolicy |
 | L7 policy | service mesh RBAC | mesh config and proxies |
@@ -826,12 +843,14 @@ Linux exposes several layers of observability. procfs and sysfs offer counters, 
 - ftrace and trace-cmd expose scheduler, syscall, block, and network events with high fidelity.
 - eBPF tools attach to kprobes, tracepoints, and cgroup hooks for precise event capture.
 - strace answers syscall latency questions quickly, especially for hanging processes or permission issues.
-- Choose tools based on whether you need counts, time-series, call stacks, events, or packet contents.
+- ltrace is useful when the question is about user-space library calls such as malloc, DNS resolver functions, or TLS libraries rather than kernel syscalls.
+- Choose tools based on whether you need counts, time-series, call stacks, events, library calls, or packet contents.
 
 ### Operator map
 | Tool | Best for | Caution |
 | --- | --- | --- |
 | strace | hung or slow syscalls | can perturb extremely hot paths |
+| ltrace | user-space library call tracing | less useful on statically linked binaries |
 | perf top or record | CPU hot functions | needs symbols for best value |
 | bpftool or bcc | dynamic event tracing | requires kernel support and privilege |
 | sar | historical host trends | only useful if collection is enabled |
@@ -840,6 +859,7 @@ Linux exposes several layers of observability. procfs and sysfs offer counters, 
 ### Command examples
 ```bash
 strace -tt -T -p <pid>
+ltrace -p <pid>
 perf top
 perf record -g -p <pid> -- sleep 30
 bpftool prog show

@@ -1,0 +1,92 @@
+# grafana-datasources.yaml
+# Grafana datasource provisioning for Prometheus, Loki, and Tempo.
+
+apiVersion: 1
+
+deleteDatasources:
+  # Delete stale datasources created by hand so Grafana keeps one canonical set.
+  - name: Prometheus
+    orgId: 1
+  - name: Loki
+    orgId: 1
+  - name: Tempo
+    orgId: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus-prod
+    type: prometheus
+    access: proxy
+    url: http://prometheus-operated.monitoring.svc.cluster.local:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      prometheusType: Prometheus
+      cacheLevel: High
+      manageAlerts: true
+      queryTimeout: 60s
+      timeInterval: 30s
+      # Exemplars let Grafana jump from a latency spike directly into traces.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo-prod
+
+  - name: Loki
+    uid: loki-prod
+    type: loki
+    access: proxy
+    url: http://loki-gateway.monitoring.svc.cluster.local
+    editable: false
+    jsonData:
+      maxLines: 1000
+      timeout: 60
+      # Derived fields create clickable trace links from logs containing trace IDs.
+      derivedFields:
+        - name: TraceID
+          matcherRegex: 'trace[_-]?id["=: ]+([a-f0-9]{32})'
+          datasourceUid: tempo-prod
+          url: '$${__value.raw}'
+        - name: SpanID
+          matcherRegex: 'span[_-]?id["=: ]+([a-f0-9]{16})'
+          datasourceUid: tempo-prod
+          url: '$${__value.raw}'
+
+  - name: Tempo
+    uid: tempo-prod
+    type: tempo
+    access: proxy
+    url: http://tempo-query-frontend.monitoring.svc.cluster.local:3100
+    editable: false
+    jsonData:
+      serviceMap:
+        datasourceUid: prometheus-prod
+      tracesToLogsV2:
+        datasourceUid: loki-prod
+        spanStartTimeShift: '-30m'
+        spanEndTimeShift: '30m'
+        tags:
+          - key: cluster
+            value: cluster
+          - key: k8s.namespace.name
+            value: namespace
+          - key: k8s.pod.name
+            value: pod
+          - key: service.name
+            value: service
+        filterByTraceID: true
+        filterBySpanID: true
+      tracesToMetrics:
+        datasourceUid: prometheus-prod
+        tags:
+          - key: service.name
+            value: service
+          - key: k8s.namespace.name
+            value: namespace
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+      spanBar:
+        type: Tag
+        tag: http.method

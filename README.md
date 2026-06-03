@@ -31,6 +31,14 @@
 
 ---
 
+## 🧰 Repository-Wide Operational Guides
+
+- [SRE Troubleshooting Master Guide](troubleshooting.md) — cross-cutting production triage across Kubernetes, monitoring, GCP, Linux, and releases
+- [Full-Stack Incident Scenarios](scenarios.md) — realistic multi-domain incident exercises for tabletop drills and on-call practice
+- [Production Config Templates](configs/) — Prometheus, Alertmanager, Loki, Grafana, OpenTelemetry Collector, and local lab configuration
+
+---
+
 ## 🔧 Prerequisites
 
 Install these tools before starting labs:

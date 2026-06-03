@@ -1,0 +1,240 @@
+# prometheus-production.yml
+# Production-oriented standalone Prometheus configuration.
+# The values assume Prometheus is running in the `monitoring` namespace
+# with service account credentials mounted at the default paths.
+
+global:
+  # Thirty-second scraping and evaluation is a good production default:
+  # fast enough for alerting, but not as expensive as 15s across every target.
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    # External labels make federation and remote_write deduplication safe.
+    cluster: gke-prod-us-central1
+    environment: production
+    region: us-central1
+
+alerting:
+  alertmanagers:
+    - scheme: http
+      path_prefix: /
+      timeout: 10s
+      static_configs:
+        # Use the Alertmanager headless service or a stable virtual service so
+        # Prometheus can reach any healthy Alertmanager replica.
+        - targets:
+            - alertmanager-operated.monitoring.svc.cluster.local:9093
+
+rule_files:
+  # Split recording and alerting rules so large rule sets stay readable.
+  - /etc/prometheus/rules/*.yml
+  - /etc/prometheus/alerts/*.yml
+  - /etc/prometheus/recording/*.yml
+
+remote_write:
+  - url: http://thanos-receive.monitoring.svc.cluster.local:19291/api/v1/receive
+    # Keep long-term storage behind a queue so short remote outages do not
+    # immediately block ingestion in the local Prometheus pod.
+    remote_timeout: 30s
+    send_exemplars: true
+    queue_config:
+      capacity: 25000
+      max_shards: 20
+      min_shards: 4
+      max_samples_per_send: 5000
+      batch_send_deadline: 5s
+      min_backoff: 250ms
+      max_backoff: 5s
+    metadata_config:
+      send: true
+      send_interval: 1m
+      max_samples_per_send: 500
+    write_relabel_configs:
+      # Drop intentionally noisy or short-lived metrics before they hit the
+      # long-term store to control cost and downstream cardinality.
+      - source_labels: [__name__]
+        regex: 'go_gc_heap_frees_by_size_bytes.*|scrape_duration_seconds'
+        action: drop
+
+scrape_configs:
+  - job_name: kubernetes-apiservers
+    scheme: https
+    kubernetes_sd_configs:
+      - role: endpoints
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: false
+    relabel_configs:
+      # Only keep the default Kubernetes API server endpoint.
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+      # Copy namespace and service labels for easier filtering.
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: kubernetes_service_name
+      # Propagate Kubernetes service labels as Prometheus labels.
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+
+  - job_name: kubernetes-nodes
+    scheme: https
+    kubernetes_sd_configs:
+      - role: node
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: false
+    relabel_configs:
+      # Preserve all node labels so node pool, zone, and instance labels are queryable.
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      # Scrape through the API server proxy instead of reaching kubelets directly.
+      - target_label: __address__
+        replacement: kubernetes.default.svc.cluster.local:443
+      # Rewrite each node target into the kubelet metrics proxy path.
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: instance
+
+  - job_name: kubernetes-cadvisor
+    scheme: https
+    kubernetes_sd_configs:
+      - role: node
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: false
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc.cluster.local:443
+      # cAdvisor is still useful for container-level memory and throttling data
+      # that kube-state-metrics cannot provide.
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: instance
+
+  - job_name: kubernetes-service-endpoints
+    kubernetes_sd_configs:
+      - role: endpoints
+    relabel_configs:
+      # Only scrape Services that explicitly opt in via annotation.
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      # Respect per-service scheme override when apps expose HTTPS metrics.
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      # Respect custom metrics path annotation when `/metrics` is not used.
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      # Build the final target address using pod IP plus annotated metrics port.
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        regex: '([^:]+)(?::\d+)?;(\d+)'
+        replacement: '$1:$2'
+        target_label: __address__
+      # Attach namespace, service, pod, and endpoint metadata for ownership queries.
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: kubernetes_service_name
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: kubernetes_pod_name
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        target_label: endpoint_port_name
+      # Copy service labels into Prometheus labels for service/team/environment filters.
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      # Drop completed endpoints to reduce useless scrape noise from terminated jobs.
+      - source_labels: [__meta_kubernetes_pod_phase]
+        action: drop
+        regex: Pending|Succeeded|Failed|Completed
+    metric_relabel_configs:
+      # This example drops extremely chatty histogram buckets from low-value targets.
+      - source_labels: [__name__]
+        regex: 'http_request_duration_seconds_bucket'
+        action: keep
+
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+        labels:
+          instance: prometheus-main
+          component: self-monitoring
+    relabel_configs:
+      # Keep a stable job label for dashboards and alerts tied to Prometheus internals.
+      - target_label: job
+        replacement: prometheus
+
+  - job_name: node-exporter
+    kubernetes_sd_configs:
+      - role: endpoints
+    relabel_configs:
+      # Restrict to the monitoring/node-exporter service to avoid scraping unrelated endpoints.
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: monitoring;node-exporter;metrics
+      # Use the actual pod IP and node-exporter port.
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+
+  - job_name: blackbox-exporter
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      # Probe critical external and internal user journeys from Prometheus.
+      - targets:
+          - https://app.example.com/healthz
+          - https://api.example.com/ready
+          - https://cdn.example.com/
+    relabel_configs:
+      # The original target URL becomes the `target` query param for blackbox-exporter.
+      - source_labels: [__address__]
+        target_label: __param_target
+      # Preserve the probed URL as the `instance` label shown in Grafana and alerts.
+      - source_labels: [__param_target]
+        target_label: instance
+      # Replace the actual scrape address with the exporter service address.
+      - target_label: __address__
+        replacement: blackbox-exporter.monitoring.svc.cluster.local:9115
+      # Keep a simple job label for probe dashboards.
+      - target_label: job
+        replacement: blackbox-exporter
+
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets:
+          - pushgateway.monitoring.svc.cluster.local:9091
+        labels:
+          component: pushgateway
+    relabel_configs:
+      # Pushgateway is best reserved for service-level batch jobs; avoid mixing it with ephemeral per-pod labels.
+      - target_label: job
+        replacement: pushgateway

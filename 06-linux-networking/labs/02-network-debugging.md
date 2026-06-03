@@ -149,8 +149,10 @@ getent hosts example.com
 dig example.com A +short
 dig example.com AAAA +short
 dig @<resolver-ip> example.com
+drill example.com
 dig +trace example.com
 time getent hosts example.com
+systemd-resolve --status
 resolvectl status
 ```
 
