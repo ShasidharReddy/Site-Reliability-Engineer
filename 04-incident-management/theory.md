@@ -1,238 +1,437 @@
 # Incident Management — Theory
 
+> **Level progression:** Basic (SEV levels, lifecycle) → Intermediate (roles, runbooks, PagerDuty) → Advanced (war room, postmortems, on-call health, MTTR engineering)
+
+---
+
 ## 1. Severity Levels
 
 ### SEV Definitions
+
 | Level | Description | Examples | Response SLA | Comms Cadence |
 |-------|-------------|----------|-------------|---------------|
-| **SEV1** | Complete service outage or data loss/corruption | Site down, payment processing broken, data breach | Page immediately, respond in 15 min | Every 30 min to stakeholders |
-| **SEV2** | Major functionality broken, significant user impact | Login broken for 20% of users, latency 10× normal | Page, respond in 30 min | Every 1 hour |
-| **SEV3** | Minor degradation, partial functionality broken | Dashboard loading slowly, non-critical feature broken | Respond in 4 hours | Daily update |
-| **SEV4** | No user impact, potential future risk | Alert threshold tuning needed, deprecation warning | Next business day | Weekly update |
+| **SEV1** | Complete outage or data loss/corruption | Site down, payment broken, data breach | Page immediately, ACK in 15 min | Every 30 min to stakeholders |
+| **SEV2** | Major functionality broken, significant user impact | Login broken for 20% users, latency 10× normal | Page, respond in 30 min | Every 1 hour |
+| **SEV3** | Minor degradation, partial functionality | Dashboard slow, non-critical feature broken | Respond in 4 hours | Daily update |
+| **SEV4** | No user impact, potential future risk | Alert threshold needs tuning, deprecation warning | Next business day | Weekly |
 
-### Declaring Severity
-When in doubt, **declare higher**. It's easier to downgrade a SEV1 to SEV2 than to escalate too late.
+### Declaring Severity — Decision Tree
+
+```
+Is user-facing functionality impacted?
+  ├── YES: What fraction of users?
+  │         ├── >10%  → SEV1 or SEV2
+  │         ├── 1-10% → SEV2 or SEV3
+  │         └── <1%   → SEV3
+  └── NO: Is there risk of escalation?
+            ├── Imminent risk → SEV3
+            └── Long-term risk → SEV4
+```
+
+**Golden rule:** When in doubt, **declare higher**. Downgrading is cheap; under-responding to a SEV1 has real business cost.
 
 ---
 
 ## 2. Incident Lifecycle
 
 ```
-DETECTION       TRIAGE          MITIGATION       RESOLUTION        REVIEW
-    │               │               │                 │               │
-    ▼               ▼               ▼                 ▼               ▼
-Alert fires → Confirm scope → Stop the bleeding → Fix root cause → Postmortem
-(or user     Is it real?    Rollback / disable  (may take days)  within 48-72h
- reports)    How bad?       feature / failover
-             Declare SEV    Communicate status
+DETECTION     TRIAGE        MITIGATION      RESOLUTION     REVIEW
+    │             │               │               │            │
+    ▼             ▼               ▼               ▼            ▼
+Alert fires → Confirm real? → Stop bleeding → Fix root → Postmortem
+(or report)   How many?      Rollback/FF     cause      within 72h
+              Declare SEV    Communicate     (may take
+              Open channel   every 30m       days)
 ```
 
-### Detection Sources
-- Alerting (Prometheus → Alertmanager → PagerDuty)
-- Customer reports (via support tickets, social media)
-- Internal monitoring dashboards
-- Synthetic monitoring / uptime checks
-- Canary deployment failures
+### Phase: Detection
+Sources of incident detection:
+- **Alertmanager → PagerDuty** — primary automated detection
+- **Synthetic/uptime checks** — Cloud Monitoring, Blackbox Exporter
+- **Customer reports** — support tickets, social media, #customer-reports Slack
+- **Canary deployments** — automated rollback on error rate increase
+- **SLO burn rate alerts** — fast/slow burn multi-window
 
-### Triage Checklist
-1. **Confirm** — is this real or a false positive? Check dashboards.
-2. **Scope** — how many users affected? Which regions? Which services?
-3. **Declare** — set SEV level. Create incident in ServiceNow.
-4. **Assign IC** — designate Incident Commander (not always most senior person)
-5. **Create channel** — `#inc-YYYYMMDD-description` in Slack
-6. **Status page** — update public status page within 5 minutes of SEV1 confirmation
+Mean Time to Detect (MTTD) target: < 5 minutes for SEV1/SEV2.
+
+### Phase: Triage
+
+**5-Question triage protocol** (complete within first 5 min):
+1. Is this real or false positive? (check dashboard)
+2. What is the blast radius? (users, regions, services)
+3. When did it start? (first bad data point)
+4. Is there a recent change? (deploy, config, schema migration)
+5. Does a runbook exist for this alert?
+
+### Phase: Mitigation (Stop the Bleeding)
+Priority: **reduce user impact first**, root cause second.
+
+Common mitigation actions:
+```bash
+# Rollback last deployment (Kubernetes)
+kubectl rollout undo deployment/<service> -n production
+kubectl rollout status deployment/<service> -n production
+
+# Feature flag off (if using LaunchDarkly/Unleash/Flipt)
+ldctl variation off --flag checkout-v2 --env production
+
+# Scale up replicas to handle load spike
+kubectl scale deployment/<service> --replicas=20 -n production
+
+# Redirect traffic to backup region
+gcloud compute backend-services update <backend> \
+  --global \
+  --connection-draining-timeout=30
+
+# Restart stuck pods
+kubectl rollout restart deployment/<service> -n production
+```
+
+### Phase: Resolution
+Root cause addressed. May take hours to days after mitigation. Checklist before closing:
+- [ ] Error rate back to baseline for 15+ minutes
+- [ ] All runbook steps completed
+- [ ] Monitoring dashboards green
+- [ ] Status page updated to "resolved"
+- [ ] Stakeholder communication sent
+
+### Phase: Review (Postmortem)
+Schedule within 48-72 hours. Required for all SEV1, recommended for SEV2.
 
 ---
 
-## 3. Incident Commander (IC) Role
+## 3. Incident Roles
 
-The IC is NOT the person doing the debugging. The IC:
-- **Coordinates** the response team
-- **Controls** communication (who says what, to whom)
-- **Delegates** investigation tasks clearly: "Alice, check DB connections. Bob, look at load balancer logs"
-- **Time-boxes** investigation: "Let's try X for 10 minutes. If no result, we try Y"
-- **Prevents** analysis paralysis — makes decisions with incomplete info
-- **Updates** stakeholders on cadence
-- **Calls** all-clear when resolved
+### Role: Incident Commander (IC)
+**Single decision-maker during an incident.** Does NOT do technical work — coordinates.
 
-### IC Failure Modes to Avoid
-- ❌ Trying to debug AND coordinate simultaneously
-- ❌ No clear time-boxes for investigation threads
-- ❌ Too many people talking in the incident channel
-- ❌ Forgetting to update status page
-- ❌ Declaring resolution before verifying metrics recovered
+Responsibilities:
+- Declare SEV level and own it
+- Assign technical lead and comms lead
+- Drive toward mitigation
+- Prevent "too many cooks" — control who speaks in war room
+- Make go/no-go calls (failover, rollback, scale)
+- Communicate status every 30 min (SEV1) or 1 hr (SEV2)
+- Close the incident and initiate postmortem
 
----
+### Role: Technical Lead (TL)
+Owns the investigation. Reports to IC.
 
-## 4. Runbooks
+Responsibilities:
+- Form and test hypotheses
+- Direct SMEs to specific investigation threads
+- Report findings to IC every 10-15 min
+- Recommend mitigation options with risk assessment
+- Not responsible for stakeholder comms
 
-### Anatomy of a Good Runbook
-```
-Title: <Alert Name> — Brief Description
----
-1. OVERVIEW
-   - What this alert means
-   - Typical causes
+### Role: Communications Lead (Comms)
+Owns all external-facing communication.
 
-2. IMPACT ASSESSMENT
-   - How to check user impact
-   - Key metrics to look at first
+Responsibilities:
+- Status page updates (use templates — never improvise under pressure)
+- Customer and stakeholder notifications
+- Internal #incident channel narrator
+- Escalation to management when required
+- Tracks timeline for postmortem
 
-3. TRIAGE STEPS
-   - Step-by-step commands to diagnose
-   - Decision tree: "If you see X, do Y"
+### Role: Subject Matter Expert (SME)
+Domain expert called in as needed (DB team, infra, payments, etc.).
 
-4. MITIGATION OPTIONS
-   - Quick mitigation (rollback, disable feature flag)
-   - Escalation if mitigation not working
-
-5. RESOLUTION STEPS
-   - Full fix procedure
-
-6. ESCALATION
-   - When to escalate
-   - Who to escalate to (name + contact)
-
-7. VERIFICATION
-   - How to confirm the issue is resolved
-   - What metrics to watch post-resolution
-```
-
-### Runbook Anti-Patterns
-- ❌ "Check if there's a problem" — too vague
-- ❌ Requires tribal knowledge: "Talk to Dave about the config"
-- ❌ Outdated: references old hostnames, deprecated tools
-- ❌ Too long to read during an incident — use collapsible sections
-- ✅ Every alert has exactly one linked runbook
+IC → TL → SMEs (always route through TL, not directly to SMEs)
 
 ---
 
-## 5. Root Cause Analysis (RCA)
+## 4. Communication Protocols
 
-### 5 Whys Example
+### Incident Channel Setup (Slack)
 ```
-Problem: API response times increased 10× for 45 minutes
+Channel naming: #inc-YYYYMMDD-<service>-<short-description>
+Example:        #inc-20241215-checkout-503-errors
 
-Why 1: Why were response times high?
-→ Database queries were slow (evidence: slow query log)
-
-Why 2: Why were DB queries slow?
-→ Full table scan on orders table
-
-Why 3: Why was a full table scan happening?
-→ A new query was added without an index
-
-Why 4: Why was it added without an index?
-→ No performance review was done before deploy
-
-Why 5: Why was there no performance review?
-→ No process requires SQL review for new queries
-
-ROOT CAUSE: Process gap — no mandatory SQL query review before production deploy
-ACTION ITEM: Add SQL review step to CI pipeline (query plan analysis)
+Pin at top:
+  IC: @alice
+  TL: @bob
+  Comms: @charlie
+  SEV: 1
+  Impact: ~15% checkout failures
+  Bridge: https://meet.google.com/xyz
+  Status: https://status.company.com
+  Runbook: <link>
 ```
 
-### Contributing Factors vs Root Cause
-- **Root cause**: The fundamental systemic reason. Fixing it prevents recurrence.
-- **Contributing factors**: Things that made the incident worse or harder to detect.
-  - Example: "We detected this 20 minutes late because our alert threshold was too high"
+### Status Page Update Templates
 
----
-
-## 6. Blameless Postmortems
-
-### Why Blameless?
-- People make mistakes. Blame → fear → hiding problems → worse future incidents
-- Systems should be designed so single human error doesn't cause outage
-- Goal: improve the system, not punish individuals
-
-### Postmortem Structure
-1. **Incident Summary** — 3-sentence what/when/impact
-2. **Timeline** — chronological events (times, actions, discoveries)
-3. **Root Cause** — what fundamentally caused this
-4. **Contributing Factors** — what made it worse or delayed detection
-5. **Impact** — users affected, downtime, revenue impact
-6. **What Went Well** — detection was fast, rollback worked, team communication
-7. **What Went Poorly** — alert was too noisy, runbook was outdated
-8. **Action Items** — table with: action, owner, priority (P1/P2/P3), due date
-
-### Action Item Quality
-| Bad | Good |
-|-----|------|
-| "Fix the monitoring" | "Add alerting for DB connection pool exhaustion (owner: @alice, due: 2024-02-15)" |
-| "Be more careful" | "Add index review step to PR template (owner: @bob, due: 2024-02-01)" |
-| "Improve logging" | "Add structured log for all 5xx responses including request ID (owner: @carol)" |
-
----
-
-## 7. On-Call Best Practices
-
-### Healthy On-Call Metrics
-- Pages per on-call shift: < 2-3 actionable pages (more = alert fatigue)
-- Actionable alert ratio: > 80% (alerts that require human action)
-- MTTA (Mean Time to Acknowledge): < 5 min for SEV1
-- MTTR (Mean Time to Resolve): track trend, aim to reduce 10% per quarter
-
-### On-Call Health
-If on-call is frequently interrupted (> 2 interruptions/hour):
-1. Reduce noise first — audit alert thresholds
-2. Review false positives — eliminate non-actionable alerts
-3. Add more runbooks for top-paging alerts
-4. Rotate on-call more frequently (every 1 week, not 2)
-
-### PagerDuty Setup Best Practices
+**Initial** (within 5 minutes of detection):
 ```
-Escalation Policy:
-  Level 1: Primary on-call (page immediately)
-  Level 2: Secondary (if no ack in 5 min for SEV1)
-  Level 3: Engineering manager (if no ack in 10 min for SEV1)
+[Investigating] We are investigating reports of [brief description].
+Our team has been notified and is actively investigating.
+Next update in 30 minutes.
+```
 
-Schedules:
-  - 1-week rotations
-  - Follow-the-sun for global teams
-  - Shadowing rotations for new team members
+**Progress** (every 30 min for SEV1):
+```
+[Identified] We have identified the cause of [description].
+We are implementing a fix. Affected users may experience [symptom].
+Next update in 30 minutes.
+```
 
-Alert Deduplication:
-  - Event Rules: group related alerts
-  - Time windows: suppress during maintenance
+**Resolved**:
+```
+[Resolved] This incident has been resolved as of [time UTC].
+The issue causing [symptom] has been fixed.
+We will share a postmortem within 72 hours.
+```
+
+### Escalation Path
+```
+Alert → On-Call Engineer (L1)
+     → Senior On-Call / TL (if not resolved in 15 min)
+     → Engineering Manager (SEV1 > 30 min)
+     → VP Engineering (SEV1 > 1 hour)
+     → Customer Success (if enterprise customers affected)
+     → CEO (data breach, complete outage > 2 hours)
 ```
 
 ---
 
-## 8. Mean Time Metrics
+## 5. Runbook Design
 
-| Metric | Definition | Formula | How to Improve |
-|--------|-----------|---------|----------------|
-| **MTTA** | Mean Time To Acknowledge | avg(ack_time - alert_time) | Better on-call tooling, clearer escalation |
-| **MTTD** | Mean Time To Detect | avg(detect_time - failure_time) | Better monitoring coverage |
-| **MTTR** | Mean Time To Resolve | avg(resolve_time - detect_time) | Better runbooks, automation, postmortems |
-| **MTBF** | Mean Time Between Failures | total_uptime / num_failures | Reliability engineering, chaos testing |
-| **MTTF** | Mean Time To Failure | same as MTBF for non-repairable | Design for redundancy |
+### Anatomy of a Production Runbook
+
+```
+# Runbook: [Service] — [Alert Name]
+## Metadata
+  Owner: team-platform
+  Last tested: 2024-11-01
+  Alert: HighErrorRate on checkout-api
+
+## Trigger
+  When: error_rate > 1% for 5 minutes
+  Severity: SEV2 (escalates to SEV1 if > 5%)
+
+## Scope & Impact
+  Who is affected: users completing checkout
+  Estimated impact: X% of orders failing
+
+## Quick Diagnosis (< 5 minutes)
+  1. kubectl get pods -n production | grep checkout
+  2. kubectl logs <pod> -n production --tail=50
+  3. Check Grafana SLO dashboard: <link>
+
+## Root Cause Candidates
+  1. Recent deployment? → rollback
+  2. DB connection pool? → check metrics
+  3. Downstream API timeout? → check dependency health
+
+## Mitigation Steps
+  Step A: Rollback if deploy-related
+    kubectl rollout undo deployment/checkout-api -n production
+  Step B: Scale up if resource-constrained
+    kubectl scale deployment/checkout-api --replicas=10 -n production
+
+## Verification
+  - Error rate drops below 0.1% within 5 min
+  - kubectl rollout status shows complete
+
+## Escalation
+  If not resolved in 30 min: page @checkout-team-lead
+
+## Post-Incident
+  Create postmortem ticket, tag: checkout, reliability
+```
+
+### Runbook Quality Criteria
+- [ ] Can a sleepy engineer follow this at 3am?
+- [ ] No ambiguous steps ("check the logs" vs "run command X, look for pattern Y")
+- [ ] Includes verification step (how do you know it worked?)
+- [ ] Has clear escalation path
+- [ ] Tested in last 90 days
+- [ ] Covers top 3 root causes for this alert
 
 ---
 
-## 9. ServiceNow for Incidents
+## 6. Postmortem Methodology
 
-### Incident Lifecycle in SNOW
+### Blameless Culture
+> "The goal is not to find who broke something, but to understand *how* the system allowed it to break."
+
+Blameless does NOT mean:
+- No accountability
+- No process improvement
+- Ignoring human error as a factor
+
+Blameless DOES mean:
+- Systems caused the failure, not individuals
+- Individuals operated within the constraints of the system
+- Fix the system, not the person
+
+### Timeline Construction
+
+```bash
+# Pull PagerDuty alert timestamps
+# Pull Grafana annotation history
+# Pull Slack channel log export
+# Pull kubectl events
+kubectl get events -n production --sort-by='.lastTimestamp' > events.txt
+
+# Pull deployment history
+kubectl rollout history deployment/<service> -n production
+
+# Pull Cloud Logging timeline
+gcloud logging read "resource.type=k8s_container" \
+  --freshness=24h \
+  --format="table(timestamp,jsonPayload.message)" \
+  --project=$PROJECT_ID
 ```
-New → In Progress → Resolved → Closed
+
+### Root Cause Analysis Techniques
+
+**5 Whys:**
+```
+Problem: Checkout API returning 503s
+Why 1: DB connection pool exhausted
+Why 2: New code opened extra connections per request
+Why 3: Code review missed the connection leak
+Why 4: No integration test for connection usage
+Why 5: Test coverage policy doesn't mandate resource tests
+Root Cause: Missing policy for resource usage testing
 ```
 
-### Key Fields to Fill
-- **Short Description**: 1-line summary (shown in lists/reports)
-- **Description**: Full symptoms, timeline, impact
-- **Category/Subcategory**: Maps to CMDB service
-- **Priority**: Derived from Impact × Urgency
-- **Assignment Group**: Team responsible
-- **Work Notes**: Internal updates (not visible to requester)
-- **Resolution Notes**: What fixed it
+**Fishbone (Ishikawa):**
+```
+                    PEOPLE          PROCESS
+                       \              /
+  Fishbone ─────────────────────────────── EFFECT (outage)
+                       /              \
+                  TOOLS            ENVIRONMENT
+```
 
-### CMDB Integration
-- Link incident to the affected Configuration Item (CI)
-- This enables trend analysis: "How many incidents hit payment-service this quarter?"
-- Required for Problem Management process (finding patterns)
+Categories: People, Process, Technology, Environment, Materials, Measurement
 
-### Change Management
-- After major incident: file an RFC (Request for Change) for the fix
-- Change types: Normal (reviewed), Standard (pre-approved), Emergency
-- Emergency Change: bypass normal review for critical production fixes
+### Postmortem Document Structure
+
+1. **Executive Summary** — 3 sentences max, non-technical
+2. **Impact** — duration, % users, revenue/SLA impact
+3. **Timeline** — UTC timestamps, who did what
+4. **Root Cause** — systemic, not individual
+5. **Contributing Factors** — what made it worse
+6. **What Went Well** — (don't skip this)
+7. **What Went Poorly** — honest assessment
+8. **Action Items** — owner, due date, priority (P1/P2/P3)
+9. **Lessons Learned**
+
+---
+
+## 7. PagerDuty Configuration
+
+### Service Structure
+```
+PagerDuty Service = one logical system (checkout-api, auth-service, data-pipeline)
+
+Service → Integrations (Prometheus Alertmanager, Grafana, Cloud Monitoring)
+       → Escalation Policy → Schedule → On-Call User
+```
+
+### Escalation Policy Best Practices
+```yaml
+# Escalation Policy: checkout-api
+Level 1:  Primary on-call engineer
+          Notify: 5 min → page, SMS, push
+Level 2:  Secondary on-call engineer
+          Activate: if level 1 not acknowledged in 15 min
+Level 3:  Engineering Manager
+          Activate: if level 2 not acknowledged in 30 min
+Repeat: 3 times total before "No One On Call" alert
+```
+
+### Reducing Alert Fatigue
+
+| Problem | Solution |
+|---|---|
+| Too many low-priority pages | Route SEV3/4 to email/ticket only |
+| Duplicate alerts | Alertmanager grouping + dedup |
+| Flapping alerts | Add `for: 5m` duration to all rules |
+| Wrong team paged | Review service ownership in PD |
+| Noisy overnight pages | Mute timings for known maintenance |
+
+Alert fatigue metric: **pages per engineer per week** — target < 2 actionable pages/night.
+
+---
+
+## 8. ServiceNow Integration
+
+### Record Types
+| Record | Purpose | Created By |
+|--------|---------|------------|
+| Incident | Active production issue | IC or auto-create from PD |
+| Problem | Recurring issue root cause investigation | SRE after postmortem |
+| Change | Planned modification to production | Engineer pre-deploy |
+| Known Error | Documented workaround while fix pending | Problem Manager |
+
+### Priority Matrix (Impact × Urgency)
+
+```
+             High Urgency    Medium Urgency    Low Urgency
+High Impact  → P1 (Critical)  P2 (High)         P3 (Medium)
+Med Impact   → P2 (High)      P3 (Medium)        P4 (Low)
+Low Impact   → P3 (Medium)    P4 (Low)           P5 (Planning)
+```
+
+### SLA Targets (align with SEV levels)
+| Priority | Response | Resolution |
+|----------|----------|------------|
+| P1 | 15 min | 4 hours |
+| P2 | 30 min | 8 hours |
+| P3 | 4 hours | 24 hours |
+| P4 | 1 business day | 5 business days |
+
+---
+
+## 9. On-Call Health
+
+### Sustainable On-Call Principles
+1. **Pages must be actionable** — every page requires a decision and action
+2. **Runbooks must exist** — no page without a runbook
+3. **MTTR must be tracked** — if it takes > 30 min to resolve, fix the runbook
+4. **Rotation health metrics**: pages/week, sleep-interrupts/week, MTTR, false positives
+5. **After-action rotation review** — weekly 15-min on-call review meeting
+
+### On-Call Schedule Design
+```
+Primary rotation:   7-day shifts, 1 engineer
+Secondary backup:   parallel rotation, escalated if primary doesn't ACK
+Shadow rotation:    new engineers shadow for 2 weeks before primary
+
+Handoff checklist:
+  - Open incidents
+  - Ongoing investigations
+  - Planned changes during your week
+  - Known flapping alerts and context
+```
+
+### Alert Quality Scoring
+
+Score each alert 1-5:
+- **5**: Always actionable, clear runbook, right SEV, resolves quickly
+- **3**: Sometimes actionable, runbook exists but incomplete
+- **1**: Usually noise, no runbook, wakes engineer for nothing
+
+Target: eliminate all score-1 and score-2 alerts monthly.
+
+---
+
+## 10. Key Metrics
+
+| Metric | Definition | Good Target |
+|--------|-----------|-------------|
+| MTTD | Mean Time to Detect | < 5 min (SEV1) |
+| MTTA | Mean Time to Acknowledge | < 15 min (SEV1) |
+| MTTM | Mean Time to Mitigate | < 30 min (SEV1) |
+| MTTR | Mean Time to Resolve | < 2 hours (SEV1) |
+| MTBF | Mean Time Between Failures | Maximize → reliability |
+| Alert volume | Pages per engineer per week | < 5 actionable |
+| Postmortem rate | % SEV1+2 with postmortem | 100% |
+| Action item close rate | % completed by due date | > 80% |
+
+---
+

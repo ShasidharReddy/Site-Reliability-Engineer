@@ -1,41 +1,47 @@
-# VPA — Vertical Pod Autoscaler
-# Requires VPA CRDs installed: kubectl apply -f https://github.com/kubernetes/autoscaler/releases/latest/download/vertical-pod-autoscaler.yaml
-
-# Off mode — recommendations only, no automatic changes
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: api-vpa-observer
-  namespace: production
+  name: api-vpa
+  namespace: autoscaling-lab
 spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: api
   updatePolicy:
-    updateMode: "Off"    # Recommendation only
-
+    updateMode: Off
+  resourcePolicy:
+    containerPolicies:
+    - containerName: api
+      controlledResources:
+      - cpu
+      - memory
+      minAllowed:
+        cpu: 100m
+        memory: 128Mi
+      maxAllowed:
+        cpu: "2"
+        memory: 2Gi
 ---
-# Auto mode — automatically update pod requests (requires pod restart)
-# Use with caution — HPA conflict risk
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: worker-vpa-auto
-  namespace: production
+  name: worker-vpa-memory-recommendation
+  namespace: autoscaling-lab
 spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: worker          # Stateless batch worker — safe for auto
+    name: worker
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: Initial
   resourcePolicy:
     containerPolicies:
     - containerName: worker
+      controlledValues: RequestsOnly
       minAllowed:
         cpu: 50m
-        memory: 64Mi
+        memory: 128Mi
       maxAllowed:
-        cpu: 2
-        memory: 4Gi
+        cpu: "1"
+        memory: 1Gi

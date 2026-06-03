@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate
+  namespace: autoscaling-lab
+  labels:
+    app: inflate
+    purpose: cluster-autoscaler-test
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: inflate
+  template:
+    metadata:
+      labels:
+        app: inflate
+        purpose: cluster-autoscaler-test
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.9
+        resources:
+          requests:
+            cpu: 1500m
+            memory: 2Gi
+          limits:
+            cpu: 1500m
+            memory: 2Gi

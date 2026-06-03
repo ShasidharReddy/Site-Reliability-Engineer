@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: autoscaling-lab
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+      - name: worker
+        image: ghcr.io/kedacore/sample-go-rabbitmq:latest
+        env:
+        - name: RABBITMQ_HOST
+          value: amqp://guest:guest@rabbitmq.autoscaling-lab.svc.cluster.local:5672/
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-rabbitmq
+  namespace: autoscaling-lab
+spec:
+  scaleTargetRef:
+    name: worker
+  pollingInterval: 15
+  cooldownPeriod: 180
+  minReplicaCount: 0
+  maxReplicaCount: 30
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Pods
+            value: 10
+            periodSeconds: 30
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 60
+  triggers:
+  - type: rabbitmq
+    metadata:
+      protocol: amqp
+      queueName: orders
+      mode: QueueLength
+      value: "20"
+      hostFromEnv: RABBITMQ_HOST

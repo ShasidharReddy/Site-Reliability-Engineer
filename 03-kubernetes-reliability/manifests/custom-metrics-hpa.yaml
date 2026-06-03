@@ -1,0 +1,52 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api
+  namespace: autoscaling-lab
+spec:
+  selector:
+    matchLabels:
+      app: api
+  namespaceSelector:
+    matchNames:
+    - autoscaling-lab
+  endpoints:
+  - port: http
+    interval: 15s
+    path: /metrics
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-rps-hpa
+  namespace: autoscaling-lab
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "25"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      selectPolicy: Max
+      policies:
+      - type: Pods
+        value: 5
+        periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Min
+      policies:
+      - type: Percent
+        value: 20
+        periodSeconds: 60

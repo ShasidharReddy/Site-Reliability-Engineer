@@ -1,31 +1,50 @@
-# Pod Disruption Budget — Ensures minimum availability during voluntary disruptions
-# Apply with: kubectl apply -f pdb-example.yaml
+# Advanced PodDisruptionBudget examples for stateless and stateful workloads
+# Apply with: kubectl apply -f manifests/pdb-example.yaml
+
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: web-pdb
+  name: frontend-web-pdb
   namespace: production
   labels:
     app: web
     tier: frontend
 spec:
-  # Keep at least 2 pods available at all times during voluntary disruptions
-  # (node drain, cluster upgrade, scale-down)
+  # Use an absolute value when the minimum safe capacity is fixed.
   minAvailable: 2
   selector:
     matchLabels:
       app: web
-
+      tier: frontend
 ---
-# Alternative: percentage-based (better for variable replica counts)
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: api-pdb
   namespace: production
+  labels:
+    app: api
+    tier: backend
 spec:
-  # At most 25% of pods can be unavailable at once
+  # Use a percentage when the Deployment replica count changes often.
   maxUnavailable: "25%"
   selector:
     matchLabels:
       app: api
+      tier: backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: production
+  labels:
+    app: postgres
+    workload: stateful
+spec:
+  # Stateful workloads need budgets aligned to quorum or failover behavior.
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: postgres
+      workload: stateful
