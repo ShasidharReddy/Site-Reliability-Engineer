@@ -8,3 +8,5 @@
 | [04-automation-and-ci.md](04-automation-and-ci.md) | CI automation, scheduled checks, and operations tasks |
 | [05-troubleshooting-playbooks.md](05-troubleshooting-playbooks.md) | Practical troubleshooting flow and ready playbooks |
 
+Related:
+- [../10-learning-paths/README.md](../10-learning-paths/README.md) for structured basic-to-advanced progression.

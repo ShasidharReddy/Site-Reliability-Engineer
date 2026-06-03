@@ -26,6 +26,7 @@
 | 07 | [Grafana Advanced](07-grafana-advanced/) | Dashboard design, alerting, provisioning, OnCall |
 | 08 | [Application Support L2/L3](08-application-support-l2l3/) | Triage, ServiceNow, L2/L3 workflows |
 | 09 | [Production Readiness](09-production-readiness/) | Setup, build/release, architecture connections, automation, troubleshooting |
+| 10 | [Learning Paths](10-learning-paths/) | Structured basic-to-advanced progression with visuals and practice plans |
 | 📝 | [Interview Prep](interview-prep/) | 250+ Q&A, scenario-based, SRE-specific questions |
 
 ---
@@ -79,6 +80,76 @@ kubectl get secret grafana-admin-credentials -n monitoring \
 
 ---
 
+## 🧭 Learning Path (Basic → Advanced)
+
+| Level | Focus | Start Here |
+|---|---|---|
+| Basic | Linux, networking, core monitoring concepts, SRE foundations | [10-learning-paths](10-learning-paths/) + [06-linux-networking](06-linux-networking/) |
+| Intermediate | Kubernetes reliability, incident response, production workflows | [03-kubernetes-reliability](03-kubernetes-reliability/) + [04-incident-management](04-incident-management/) |
+| Advanced | Multi-signal observability, automation, release governance, platform reliability | [01-monitoring-observability](01-monitoring-observability/) + [07-grafana-advanced](07-grafana-advanced/) + [09-production-readiness](09-production-readiness/) |
+
+---
+
+## 🖼️ Visual Learning (Images + Diagrams + GIF References)
+
+![Kubernetes](https://kubernetes.io/images/favicon.png) ![Grafana](https://grafana.com/static/assets/img/fav32.png) ![Prometheus](https://prometheus.io/assets/favicons/favicon-32x32.png)
+
+```mermaid
+flowchart LR
+  BASIC[Basic: Linux + Networking + SRE Fundamentals] --> INTER[Intermediate: Kubernetes + Incident Mgmt]
+  INTER --> ADV[Advanced: Observability + Automation + Production Readiness]
+  ADV --> MASTERY[Mastery: On-call Leadership + Architecture Decisions]
+```
+
+```mermaid
+flowchart TD
+  APP[Applications] --> MET[Metrics]
+  APP --> LOG[Logs]
+  APP --> TRC[Traces]
+  MET --> PROM[Prometheus]
+  LOG --> LOKI[Loki]
+  TRC --> TEMPO[Tempo]
+  PROM --> GRAF[Grafana]
+  LOKI --> GRAF
+  TEMPO --> GRAF
+  PROM --> ALERT[Alertmanager]
+  ALERT --> ONCALL[PagerDuty / Slack / Runbook]
+```
+
+GIF-based walkthrough references:
+- [Kubernetes demos on Killercoda](https://killercoda.com/killer-shell-cka/scenario/playground)
+- [Docker walkthroughs (Play with Docker)](https://labs.play-with-docker.com/)
+- [Linux terminal walkthrough collection](https://asciinema.org/explore)
+
+---
+
+## 🧪 Free Practice References (Hands-on)
+
+Core sandboxes and labs:
+- [Killercoda](https://killercoda.com/) — free browser-based Kubernetes, Docker, Linux scenarios
+- [Play with Docker](https://labs.play-with-docker.com/) — free Docker playground
+- [Katacoda archive mirror on Killercoda](https://killercoda.com/scenarios) — scenario-driven hands-on labs
+- [KodeKloud free community labs](https://kodekloud.com/community/) — community exercises and walkthroughs
+
+Kubernetes and cloud-native:
+- [Kubernetes official interactive tutorials](https://kubernetes.io/docs/tutorials/)
+- [Kubernetes By Example](https://kubernetesbyexample.com/)
+- [Prometheus training](https://training.promlabs.com/training/) and [PromQL cheat sheet](https://promlabs.com/promql-cheat-sheet/)
+- [Grafana Play](https://play.grafana.org/) — free live Grafana environment
+
+Linux, scripting, networking, troubleshooting:
+- [OverTheWire Bandit](https://overthewire.org/wargames/bandit/) — Linux command-line fundamentals
+- [SadServers](https://sadservers.com/) — real troubleshooting scenarios
+- [Linux Journey](https://linuxjourney.com/) — beginner-to-intermediate Linux path
+- [ExplainShell](https://explainshell.com/) — understand complex shell commands
+
+DevOps, GitHub, CI/CD:
+- [GitHub Skills](https://skills.github.com/) — free guided labs for GitHub and automation
+- [Awesome Actions](https://github.com/sdras/awesome-actions) — GitHub Actions examples
+- [HashiCorp Learn](https://developer.hashicorp.com/terraform/tutorials) — Terraform tutorials (free)
+
+---
+
 ## 🎯 Job Description Alignment
 
 | JD Requirement | Primary Module | Secondary Module |
@@ -119,7 +190,8 @@ kubectl get secret grafana-admin-credentials -n monitoring \
 ├── 06-linux-networking/           # Linux internals + networking
 ├── 07-grafana-advanced/           # Advanced Grafana
 ├── 08-application-support-l2l3/   # L2/L3 support workflows
-├── 09-production-readiness/        # Setup, build, connections, automation, troubleshooting
+├── 09-production-readiness/       # Setup, build, connections, automation, troubleshooting
+├── 10-learning-paths/             # Basic-to-advanced roadmap with visual guides
 ├── interview-prep/                # 250+ interview Q&A
 ├── scripts/                       # Bootstrap + deploy + validation automation
 ├── configs/                       # Kind cluster and other platform configs
