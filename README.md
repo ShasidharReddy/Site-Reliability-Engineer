@@ -25,6 +25,7 @@
 | 06 | [Linux & Networking](06-linux-networking/) | Kernel, memory, TCP/IP, DNS, performance tools |
 | 07 | [Grafana Advanced](07-grafana-advanced/) | Dashboard design, alerting, provisioning, OnCall |
 | 08 | [Application Support L2/L3](08-application-support-l2l3/) | Triage, ServiceNow, L2/L3 workflows |
+| 09 | [Production Readiness](09-production-readiness/) | Setup, build/release, architecture connections, automation, troubleshooting |
 | 📝 | [Interview Prep](interview-prep/) | 250+ Q&A, scenario-based, SRE-specific questions |
 
 ---
@@ -57,20 +58,23 @@ gcloud version
 ## 🚀 Quick Start
 
 ```bash
-# 1. Check prerequisites and cluster connectivity
-bash scripts/bootstrap-lab.sh
+# 1. Local prerequisite check
+make setup
 
-# 2. Deploy the full monitoring stack (Prometheus + Grafana + Loki + Tempo)
-#    Targets the current kubectl context (GKE, kind, or on-prem)
-bash scripts/deploy-monitoring-stack.sh
+# 2A. Local multi-node lab (kind + deploy)
+make run-local
 
-# 3. Access Grafana
-#    Production: via Ingress (configured in deploy script)
-#    Local lab (kind): port-forward for temporary access only
+# 2B. Or deploy to existing current context (GKE/on-prem)
+make deploy
+
+# 3. Build + validate repository content
+make build
+make validate
+
+# 4. Access Grafana (temporary local access)
 kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
-# Retrieve auto-generated admin password:
-kubectl get secret -n monitoring kube-prometheus-stack-grafana \
-  -o jsonpath="{.data.admin-password}" | base64 --decode; echo
+kubectl get secret grafana-admin-credentials -n monitoring \
+  -o jsonpath='{.data.admin-password}' | base64 --decode; echo
 ```
 
 ---
@@ -115,6 +119,10 @@ kubectl get secret -n monitoring kube-prometheus-stack-grafana \
 ├── 06-linux-networking/           # Linux internals + networking
 ├── 07-grafana-advanced/           # Advanced Grafana
 ├── 08-application-support-l2l3/   # L2/L3 support workflows
+├── 09-production-readiness/        # Setup, build, connections, automation, troubleshooting
 ├── interview-prep/                # 250+ interview Q&A
-└── scripts/                       # Bootstrap + deploy scripts
+├── scripts/                       # Bootstrap + deploy + validation automation
+├── configs/                       # Kind cluster and other platform configs
+├── .github/workflows/             # CI automation
+└── Makefile                       # Standard command entrypoints
 ```

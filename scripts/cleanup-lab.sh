@@ -6,10 +6,17 @@ info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 
 NAMESPACE=${MONITORING_NAMESPACE:-monitoring}
+AUTO_APPROVE=false
+
+if [[ "${1:-}" == "--yes" ]]; then
+  AUTO_APPROVE=true
+fi
 
 warn "This will remove the monitoring stack from namespace: $NAMESPACE"
-read -r -p "Continue? [y/N] " confirm
-[[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+if [[ "$AUTO_APPROVE" != "true" ]]; then
+  read -r -p "Continue? [y/N] " confirm
+  [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+fi
 
 info "Removing Helm releases..."
 helm uninstall tempo -n "$NAMESPACE" 2>/dev/null && info "Tempo removed" || warn "Tempo not found"
@@ -17,7 +24,7 @@ helm uninstall loki -n "$NAMESPACE" 2>/dev/null && info "Loki removed" || warn "
 helm uninstall kube-prometheus-stack -n "$NAMESPACE" 2>/dev/null && info "kube-prometheus-stack removed" || warn "Not found"
 
 info "Removing CRDs..."
-kubectl get crd | grep -E "prometheus|alertmanager|servicemonitor|podmonitor|proberule" | \
+kubectl get crd | grep -E "prometheus|alertmanager|servicemonitor|podmonitor|prometheusrule" | \
   awk '{print $1}' | xargs -r kubectl delete crd 2>/dev/null || true
 
 info "Removing namespace..."

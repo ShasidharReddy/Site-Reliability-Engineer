@@ -34,10 +34,10 @@ check_cmd() {
 echo "── Required Tools ──────────────────────"
 check_cmd kubectl "" "cluster management"
 check_cmd helm "" "chart deployment"
-check_cmd gcloud "" "GKE auth + GCP operations"
 
 echo ""
 echo "── Recommended Tools ───────────────────"
+check_cmd gcloud "" "GKE auth + GCP operations"
 check_cmd kind "" "local multi-node K8s clusters (production parity)"
 check_cmd terraform "" "infrastructure as code"
 check_cmd jq "" "JSON processing in lab exercises"
